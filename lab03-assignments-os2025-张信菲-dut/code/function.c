@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <sys/types.h>
 #include <unistd.h>
+#include <sys/wait.h> 
 
 int fx(int x) {
     if (x == 1)
@@ -35,9 +36,11 @@ int main() {
         exit(0);
     }
 
-    wait(NULL);
-    wait(NULL);
+    // 等待两个子进程结束
+    waitpid(pid_fx, NULL, 0);
+    waitpid(pid_fy, NULL, 0);
 
+    // 主进程计算 f(x) + f(y)
     printf("f(x, y) = %d\n", fx(x) + fy(y));
 
     return 0;
