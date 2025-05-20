@@ -3,8 +3,9 @@
 #include <pthread.h>
 #include <semaphore.h>
 #include <unistd.h>
+#include <time.h> // 添加时间头文件，用于初始化随机数种子
 
-#define BUFFER_SIZE 10
+#define BUFFER_SIZE 10 // 缓冲区大小
 
 // 共享缓冲区
 int buffer[BUFFER_SIZE];
@@ -27,7 +28,7 @@ void* producer(void* arg) {
         printf("生产者生产数据 %d 放入缓冲区位置 %d\n", item, in);
         pthread_mutex_unlock(&mutex); // 解锁
         sem_post(&full);       // 释放一个满槽位
-        sleep(rand() % 2);     // 模拟生产时间
+        sleep(rand() % 2 + 1); // 模拟生产时间，避免0秒
     }
     return NULL;
 }
@@ -42,12 +43,15 @@ void* consumer(void* arg) {
         printf("消费者消费数据 %d 从缓冲区位置 %d\n", item, out);
         pthread_mutex_unlock(&mutex); // 解锁
         sem_post(&empty);       // 释放一个空槽位
-        sleep(rand() % 3);      // 模拟消费时间
+        sleep(rand() % 3 + 1); // 模拟消费时间，避免0秒
     }
     return NULL;
 }
 
 int main() {
+    // 初始化随机数种子
+    srand((unsigned int)time(NULL));
+
     // 初始化信号量和互斥锁
     sem_init(&empty, 0, BUFFER_SIZE); // 初始化空槽位信号量
     sem_init(&full, 0, 0);            // 初始化满槽位信号量
