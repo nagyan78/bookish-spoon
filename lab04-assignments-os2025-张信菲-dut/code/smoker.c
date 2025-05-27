@@ -1,3 +1,5 @@
+//不符合要求
+
 /* Filename: smoker.c */
 /* Function: 实现抽烟者问题 */
 
