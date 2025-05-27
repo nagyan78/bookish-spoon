@@ -1,148 +1,188 @@
-/*Filename : ipc.c* copyright : (C)2006 by zhonghonglie* Function
-    : 一组建立 IPC 机制的函数 */
+/*
+	Filename: ipc.c
+	Copyright: (C) 2006 by zhonghonglie
+	Function: 实现 IPC 机制的核心函数
+*/
 #include "ipc.h"
+
+// 全局变量声明（需在ipc.c中定义）
+key_t buff_key;     // 缓冲区共享内存键值
+int buff_num;       // 缓冲区大小（字节数）
+char *buff_ptr;     // 缓冲区指针
+
+// 生产者放产品位置的共享指针
+key_t pput_key;     // 生产者指针键值
+int pput_num;       // 指针数量
+int *pput_ptr;      // 生产者指针
+
+// 消费者取产品位置的共享指针
+key_t cget_key;     // 消费者指针键值
+int cget_num;       // 指针数量
+int *cget_ptr;      // 消费者指针
+
+// 信号量相关全局变量
+key_t prod_key;     // 生产者同步信号量键值
+key_t pmtx_key;     // 生产者互斥信号量键值
+int prod_sem;       // 生产者同步信号量ID
+int pmtx_sem;       // 生产者互斥信号量ID
+
+key_t cons_key;     // 消费者同步信号量键值
+key_t cmtx_key;     // 消费者互斥信号量键值
+int cons_sem;       // 消费者同步信号量ID
+int cmtx_sem;       // 消费者互斥信号量ID
+
+int sem_val;        // 信号量初始值
+int sem_flg;        // 信号量操作标志
+int shm_flg;        // 共享内存操作标志
+
 /*
- * get_ipc_id() 从/proc/sysvipc/文件系统中获取 IPC 的 id 号
- * pfile: 对应/proc/sysvipc/目录中的 IPC 文件分别为
- * msg-消息队列,sem-信号量,shm-共享内存
- * key: 对应要获取的 IPC 的 id 号的键值
- */
-int get_ipc_id(char* proc_file, key_t key) {
-    FILE* pf;
-    int i, j;
-    char line[BUFSZ], colum[BUFSZ];
-    if ((pf = fopen(proc_file, "r")) == NULL) {
-        perror("Proc file not open");
-        exit(EXIT_FAILURE);
-    }
-    fgets(line, BUFSZ, pf);
-    while (!feof(pf)) {
-        i = j = 0;
-        fgets(line, BUFSZ, pf);
-        while (line[i] == ' ')
-            i++;
-        while (line[i] != ' ')
-            colum[j++] = line[i++];
-        colum[j] = '\0';
-        if (atoi(colum) != key)
-            continue;
-        j = 0;
-        while (line[i] == ' ')
-            i++;
-        while (line[i] != ' ')
-            colum[j++] = line[i++];
-        colum[j] = '\0';
-        i = atoi(colum);
-        fclose(pf);
-        return i;
-    }
-    fclose(pf);
-    return -1;
+	get_ipc_id() - 从/proc/sysvipc/文件系统中获取IPC对象的ID
+	@proc_file: 对应的IPC文件路径（msg/sem/shm）
+	@key: 要获取的IPC对象键值
+*/
+int get_ipc_id(char *proc_file, key_t key) {
+	FILE *pf;
+	int i, j;
+	char line[BUFSZ], colum[BUFSZ];
+
+	if ((pf = fopen(proc_file, "r")) == NULL) {
+		perror("Proc file not open");
+		exit(EXIT_FAILURE);
+	}
+	fgets(line, BUFSZ, pf); // 跳过首行标题
+
+	while (!feof(pf)) {
+		i = j = 0;
+		fgets(line, BUFSZ, pf); // 读取数据行
+
+		// 解析键值字段
+		while (line[i] == ' ') i++;
+		while (line[i] != ' ') colum[j++] = line[i++];
+		colum[j] = '\0';
+
+		if (atoi(colum) != key) continue; // 键值匹配检测
+
+		// 提取IPC ID
+		j = 0;
+		while (line[i] == ' ') i++;
+		while (line[i] != ' ') colum[j++] = line[i++];
+		colum[j] = '\0';
+		fclose(pf);
+		return atoi(colum);
+	}
+	fclose(pf);
+	return -1; // 未找到对应IPC对象
 }
+
 /*
- * 信号灯上的 down/up 操作
- * semid:信号灯数组标识符
- * semnum:信号灯数组下标
- * buf:操作信号灯的结构
- */
+	down() - 信号量P操作（阻塞）
+	@sem_id: 信号量ID
+*/
 int down(int sem_id) {
-    struct sembuf buf;
-    buf.sem_op = -1;
-    buf.sem_num = 0;
-    buf.sem_flg = SEM_UNDO;
-    if ((semop(sem_id, &buf, 1)) < 0) {
-        perror("down error ");
-        exit(EXIT_FAILURE);
-    }
-    return EXIT_SUCCESS;
+	struct sembuf buf;
+	buf.sem_op = -1;       // 减1操作
+	buf.sem_num = 0;       // 信号量数组下标
+	buf.sem_flg = SEM_UNDO; // 自动恢复机制
+
+	if ((semop(sem_id, &buf, 1)) < 0) {
+		perror("down error");
+		exit(EXIT_FAILURE);
+	}
+	return EXIT_SUCCESS;
 }
+
+/*
+	up() - 信号量V操作（释放）
+	@sem_id: 信号量ID
+*/
 int up(int sem_id) {
-    struct sembuf buf;
-    buf.sem_op = 1;
-    buf.sem_num = 0;
-    buf.sem_flg = SEM_UNDO;
-    if ((semop(sem_id, &buf, 1)) < 0) {
-        perror("up error ");
-        exit(EXIT_FAILURE);
-    }
-    return EXIT_SUCCESS;
+	struct sembuf buf;
+	buf.sem_op = 1;       // 加1操作
+	buf.sem_num = 0;      // 信号量数组下标
+	buf.sem_flg = SEM_UNDO; // 自动恢复机制
+
+	if ((semop(sem_id, &buf, 1)) < 0) {
+		perror("up error");
+		exit(EXIT_FAILURE);
+	}
+	return EXIT_SUCCESS;
 }
+
 /*
- * set_sem 函数建立一个具有 n 个信号灯的信号量
- * 如果建立成功，返回 一个信号灯数组的标识符 sem_id
- * 输入参数：
- * sem_key 信号灯数组的键值
- * sem_val 信号灯数组中信号灯的个数
- * sem_flag 信号等数组的存取权限
- */
+	set_sem() - 创建/获取信号量并初始化
+	@sem_key: 信号量键值
+	@sem_val: 初始值
+	@sem_flg: 权限标志
+*/
 int set_sem(key_t sem_key, int sem_val, int sem_flg) {
-    int sem_id;
-    Sem_uns sem_arg;
-    // 测试由 sem_key 标识的信号灯数组是否已经建立
-    if ((sem_id = get_ipc_id("/proc/sysvipc/sem", sem_key)) < 0) {
-        // semget 新建一个信号灯,其标号返回到 sem_id
-        if ((sem_id = semget(sem_key, 1, sem_flg)) < 0) {
-            perror("semaphore create error");
-            exit(EXIT_FAILURE);
-        }  // 设置信号灯的初值
-        sem_arg.val = sem_val;
-        if (semctl(sem_id, 0, SETVAL, sem_arg) < 0) {
-            perror("semaphore set error");
-            exit(EXIT_FAILURE);
-        }
-    }
-    return sem_id;
+	int sem_id;
+	Sem_uns sem_arg;
+
+	// 检查信号量是否存在
+	if ((sem_id = get_ipc_id("/proc/sysvipc/sem", sem_key)) < 0) {
+		// 创建新信号量（1个元素）
+		if ((sem_id = semget(sem_key, 1, sem_flg)) < 0) {
+			perror("semaphore create error");
+			exit(EXIT_FAILURE);
+		}
+		// 初始化信号量值
+		sem_arg.val = sem_val;
+		if (semctl(sem_id, 0, SETVAL, sem_arg) < 0) {
+			perror("semaphore set error");
+			exit(EXIT_FAILURE);
+		}
+	}
+	return sem_id;
 }
+
 /*
- * set_shm 函数建立一个具有 n 个字节 的共享内存区
- * 如果建立成功，返回 一个指向该内存区首地址的指针 shm_buf
- * 输入参数：
- * shm_key 共享内存的键值
- * shm_val 共享内存字节的长度
- * shm_flag 共享内存的存取权限
- */
-char* set_shm(key_t shm_key, int shm_num, int shm_flg) {
-    int i, shm_id;
-    char* shm_buf;
-    // 测试由 shm_key 标识的共享内存区是否已经建立
-    if ((shm_id = get_ipc_id("/proc/sysvipc/shm", shm_key)) < 0) {
-        // shmget 新建 一个长度为 shm_num 字节的共享内存,其标号返回到 shm_id
-        if ((shm_id = shmget(shm_key, shm_num, shm_flg)) < 0) {
-            perror("shareMemory set error");
-            exit(EXIT_FAILURE);
-        }
-        // shmat 将由 shm_id 标识的共享内存附加给指针 shm_buf
-        if ((shm_buf = (char*)shmat(shm_id, 0, 0)) < (char*)0) {
-            perror("get shareMemory error");
-            exit(EXIT_FAILURE);
-        }
-        for (i = 0; i < shm_num; i++)
-            shm_buf[i] = 0;  // 初始为 0
-    }
-    // shm_key 标识的共享内存区已经建立,将由 shm_id 标识的共享内存附加给指针
-    // shm_buf
-    if ((shm_buf = (char*)shmat(shm_id, 0, 0)) < (char*)0) {
-        perror("get shareMemory error");
-        exit(EXIT_FAILURE);
-    }
-    return shm_buf;
+	set_shm() - 创建/获取共享内存并附加
+	@shm_key: 共享内存键值
+	@shm_num: 内存大小（字节）
+	@shm_flg: 权限标志
+*/
+char *set_shm(key_t shm_key, int shm_num, int shm_flg) {
+	int i, shm_id;
+	char *shm_buf;
+
+	// 检查共享内存是否存在
+	if ((shm_id = get_ipc_id("/proc/sysvipc/shm", shm_key)) < 0) {
+		// 创建新共享内存
+		if ((shm_id = shmget(shm_key, shm_num, shm_flg)) < 0) {
+			perror("shareMemory set error");
+			exit(EXIT_FAILURE);
+		}
+		// 附加到进程地址空间
+		if ((shm_buf = (char *)shmat(shm_id, 0, 0)) < (char *)0) {
+			perror("get shareMemory error");
+			exit(EXIT_FAILURE);
+		}
+		for (i = 0; i < shm_num; i++) shm_buf[i] = 0; // 初始化为0
+	} else {
+		// 附加已有内存
+		if ((shm_buf = (char *)shmat(shm_id, 0, 0)) < (char *)0) {
+			perror("get shareMemory error");
+			exit(EXIT_FAILURE);
+		}
+	}
+	return shm_buf;
 }
+
 /*
- * set_msq 函数建立一个消息队列
- * 如果建立成功，返回 一个消息队列的标识符 msq_id
- * 输入参数：
- * msq_key 消息队列的键值
- * msq_flag 消息队列的存取权限
- */
+	set_msq() - 创建/获取消息队列
+	@msq_key: 队列键值
+	@msq_flg: 权限标志
+*/
 int set_msq(key_t msq_key, int msq_flg) {
-    int msq_id;
-    // 测试由 msq_key 标识的消息队列是否已经建立
-    if ((msq_id = get_ipc_id("/proc/sysvipc/msg", msq_key)) < 0) {
-        // msgget 新建一个消息队列,其标号返回到 msq_id
-        if ((msq_id = msgget(msq_key, msq_flg)) < 0) {
-            perror("messageQueue set error");
-            exit(EXIT_FAILURE);
-        }
-    }
-    return msq_id;
+	int msq_id;
+
+	// 检查消息队列是否存在
+	if ((msq_id = get_ipc_id("/proc/sysvipc/msg", msq_key)) < 0) {
+		// 创建新队列
+		if ((msq_id = msgget(msq_key, msq_flg)) < 0) {
+			perror("messageQueue set error");
+			exit(EXIT_FAILURE);
+		}
+	}
+	return msq_id;
 }
