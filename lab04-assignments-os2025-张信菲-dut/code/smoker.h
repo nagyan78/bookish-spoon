@@ -1,3 +1,5 @@
+//不符合要求
+
 /* Filename: smoker.h */
 /* Function: 声明抽烟者问题中使用的IPC机制的函数原型和全局变量 */
 
